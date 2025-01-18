@@ -4,8 +4,10 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.view.SurfaceView
+import android.view.View
 import android.widget.Button
 import androidx.activity.enableEdgeToEdge
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -24,11 +26,12 @@ class MainActivity : AppCompatActivity() {
     private val myAppId = "ea3bfb092005472d861486abcc06fcb2"
     private val channelName = "123"
     private val token =
-        "007eJxTYOj8/sZSXIyz/r0ZZ8T8LIPox6+mOmpqRD3d1KCfobFPd4MCQ2qicVJakoGlkYGBqYm5UYqFmaGJhVliUnKygVlacpJRF3NnekMgI8O0qCkMjFAI4jMzGBoZMzAAAK29HJc="
+        "007eJxTYLjq9TlA55fXD8k/9QdvWX+vP6fjsFbuRP/SghWfohnYtm5UYEhNNE5KSzKwNDIwMDUxN0qxMDM0sTBLTEpONjBLS04yer+0O70hkJHh2lI+BkYoBPGZGQyNjBkYAObnIO4="
     private val permissionReqId = 22
     private lateinit var mRtcEngine: RtcEngine
     private var isJoined = false
     private var isMuted = false
+    private var isHost = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -40,7 +43,23 @@ class MainActivity : AppCompatActivity() {
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
             insets
         }
-        checkAndRequestPermissions()
+        showRoleSelectionDialog()
+    }
+
+    private fun showRoleSelectionDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("Select Role")
+            .setMessage("Would you like to join as a host or audience member?")
+            .setPositiveButton("Host") { _, _ ->
+                isHost = true
+                checkAndRequestPermissions()
+            }
+            .setNegativeButton("Audience") { _, _ ->
+                isHost = false
+                checkAndRequestPermissions()
+            }
+            .setCancelable(false)
+            .show()
     }
 
     private fun checkAndRequestPermissions() {
@@ -61,6 +80,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupUI() {
+        if (isHost) {
+            binding.apply {
+                switchCameraButton.visibility = View.VISIBLE
+                muteButton.visibility = View.VISIBLE
+                startStopButton.text = "Start Stream"
+            }
+        } else {
+            binding.apply {
+                switchCameraButton.visibility = View.GONE
+                muteButton.visibility = View.GONE
+                startStopButton.text = "Join Stream"
+            }
+        }
+
         binding.startStopButton.setOnClickListener {
             if (!isJoined) {
                 joinChannel()
@@ -68,6 +101,8 @@ class MainActivity : AppCompatActivity() {
                 leaveChannel()
             }
         }
+
+        binding.switchCameraButton.visibility = if (isHost) View.VISIBLE else View.GONE
 
         binding.switchCameraButton.setOnClickListener {
             mRtcEngine.switchCamera()
@@ -96,21 +131,29 @@ class MainActivity : AppCompatActivity() {
 
     private fun joinChannel() {
         if (checkPermissions()) {
-            setupLocalVideo()
+            if (isHost) {
+                setupLocalVideo()
+            }
+
             val options = ChannelMediaOptions().apply {
-                clientRoleType = Constants.CLIENT_ROLE_BROADCASTER
+                clientRoleType = if (isHost) {
+                    Constants.CLIENT_ROLE_BROADCASTER
+                } else {
+                    Constants.CLIENT_ROLE_AUDIENCE
+                }
                 channelProfile = Constants.CHANNEL_PROFILE_LIVE_BROADCASTING
                 audienceLatencyLevel = Constants.AUDIENCE_LATENCY_LEVEL_ULTRA_LOW_LATENCY
-                // Publish the audio captured by the microphone
-                publishMicrophoneTrack = true
-                // Publish the video captured by the camera
-                publishCameraTrack = true
-                // Automatically subscribe to all audio streams
+
+                publishMicrophoneTrack = isHost
+                publishCameraTrack = isHost
+
                 autoSubscribeAudio = true
-                // Automatically subscribe to all video streams
                 autoSubscribeVideo = true
             }
-            mRtcEngine.startPreview()
+
+            if (isHost) {
+                mRtcEngine.startPreview()
+            }
             mRtcEngine.joinChannel(token, channelName, 0, options)
         }
     }
@@ -118,7 +161,9 @@ class MainActivity : AppCompatActivity() {
     private fun setupLocalVideo() {
         val surfaceView = SurfaceView(applicationContext)
         surfaceView.setZOrderMediaOverlay(true)
+        binding.localVideoViewContainer.removeAllViews()
         binding.localVideoViewContainer.addView(surfaceView)
+
         mRtcEngine.setupLocalVideo(
             VideoCanvas(
                 surfaceView,
@@ -129,56 +174,106 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupRemoteVideo(uid: Int) {
-        val surfaceView = SurfaceView(applicationContext).apply {
-            setZOrderMediaOverlay(true)
+        if (isHost) {
+            val surfaceView = SurfaceView(applicationContext).apply {
+                setZOrderMediaOverlay(true)
+            }
+            mRtcEngine.setupRemoteVideo(
+                VideoCanvas(
+                    surfaceView,
+                    VideoCanvas.RENDER_MODE_FIT,
+                    uid
+                )
+            )
         }
-        binding.remoteVideoViewContainer.addView(surfaceView)
-        mRtcEngine.setupRemoteVideo(VideoCanvas(surfaceView, VideoCanvas.RENDER_MODE_FIT, uid))
     }
 
     private fun leaveChannel() {
+        if (isHost) {
+            mRtcEngine.stopPreview()
+        }
         mRtcEngine.leaveChannel()
+
         binding.localVideoViewContainer.removeAllViews()
-        binding.remoteVideoViewContainer.removeAllViews()
+
         isJoined = false
-        binding.startStopButton.text = "Start Stream"
+        binding.startStopButton.text = if (isHost) "Start Stream" else "Join Stream"
     }
 
     private val mRtcEventHandler = object : IRtcEngineEventHandler() {
         override fun onJoinChannelSuccess(channel: String?, uid: Int, elapsed: Int) {
-            super.onJoinChannelSuccess(channel, uid, elapsed)
             runOnUiThread {
-                binding.startStopButton.text = "End Stream"
+                isJoined = true
+                binding.startStopButton.text = if (isHost) "End Stream" else "Leave Stream"
             }
         }
 
         override fun onUserJoined(uid: Int, elapsed: Int) {
             runOnUiThread {
-                setupRemoteVideo(uid)
+                if (!isHost) {
+                    val surfaceView = SurfaceView(applicationContext)
+                    binding.localVideoViewContainer.removeAllViews()
+                    binding.localVideoViewContainer.addView(surfaceView)
+                    mRtcEngine.setupRemoteVideo(
+                        VideoCanvas(
+                            surfaceView,
+                            VideoCanvas.RENDER_MODE_FIT,
+                            uid
+                        )
+                    )
+                } else {
+                    setupRemoteVideo(uid)
+                }
             }
         }
 
         override fun onUserOffline(uid: Int, reason: Int) {
-            super.onUserOffline(uid, reason)
             runOnUiThread {
-                binding.remoteVideoViewContainer.removeAllViews()
+                binding.localVideoViewContainer.removeAllViews()
+            }
+        }
+
+        override fun onError(err: Int) {
+            runOnUiThread {
+                showError("Error code: $err")
             }
         }
     }
 
+    private fun showError(message: String) {
+        AlertDialog.Builder(this)
+            .setTitle("Error")
+            .setMessage(message)
+            .setPositiveButton("OK") { dialog, _ ->
+                dialog.dismiss()
+            }
+            .show()
+    }
+
     private fun getRequiredPermissions(): Array<String> {
-        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-            arrayOf(
-                Manifest.permission.RECORD_AUDIO,
-                Manifest.permission.CAMERA,
-                Manifest.permission.READ_PHONE_STATE,
-                Manifest.permission.BLUETOOTH_CONNECT
-            )
+        return if (isHost) {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                arrayOf(
+                    Manifest.permission.RECORD_AUDIO,
+                    Manifest.permission.CAMERA,
+                    Manifest.permission.READ_PHONE_STATE,
+                    Manifest.permission.BLUETOOTH_CONNECT
+                )
+            } else {
+                arrayOf(
+                    Manifest.permission.RECORD_AUDIO,
+                    Manifest.permission.CAMERA
+                )
+            }
         } else {
-            arrayOf(
-                Manifest.permission.RECORD_AUDIO,
-                Manifest.permission.CAMERA
-            )
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                arrayOf(
+                    Manifest.permission.READ_PHONE_STATE,
+                    Manifest.permission.BLUETOOTH_CONNECT
+                )
+            } else {
+                arrayOf()
+            }
         }
     }
 
@@ -200,12 +295,17 @@ class MainActivity : AppCompatActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (checkPermissions()) {
             initializeAgora()
+        } else {
+            showError("Permissions not granted")
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        mRtcEngine.stopPreview()
+        if (isHost) {
+            mRtcEngine.stopPreview()
+        }
         mRtcEngine.leaveChannel()
+        RtcEngine.destroy()
     }
 }
