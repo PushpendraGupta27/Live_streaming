@@ -26,7 +26,7 @@ class MainActivity : AppCompatActivity() {
     private val myAppId = "ea3bfb092005472d861486abcc06fcb2"
     private val channelName = "123"
     private val token =
-        "007eJxTYLjq9TlA55fXD8k/9QdvWX+vP6fjsFbuRP/SghWfohnYtm5UYEhNNE5KSzKwNDIwMDUxN0qxMDM0sTBLTEpONjBLS04yer+0O70hkJHh2lI+BkYoBPGZGQyNjBkYAObnIO4="
+        "007eJxTYMiesOpbQ4H2yiPPjy18yGBRdOQJf0iC+y/eBjUjHa6yot0KDKmJxklpSQaWRgYGpibmRikWZoYmFmaJScnJBmZpyUlGV2/1pjcEMjJIy1iwMjJAIIjPzGBoZMzAAAA2dx3g"
     private val permissionReqId = 22
     private lateinit var mRtcEngine: RtcEngine
     private var isJoined = false
